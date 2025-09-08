@@ -3,8 +3,8 @@ name: Seed / Update Roadmap Issues
 on:
   workflow_dispatch: {}   # manual trigger
   # Optional: auto-refresh daily (UTC)
-  # schedule:
-  #   - cron: "33 10 * * *"
+   schedule:
+     - cron: "59 4 * * *"
 
 permissions:
   contents: read
