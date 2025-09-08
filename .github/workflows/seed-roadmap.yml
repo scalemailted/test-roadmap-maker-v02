@@ -51,7 +51,17 @@ jobs:
         with:
           script: |
             const owner = context.repo.owner, repo = context.repo.repo;
-            const data = JSON.parse(process.env.ROADMAP_JSON || '[]');
+
+            // Parse JSON safely
+            let data;
+            try {
+              data = JSON.parse(process.env.ROADMAP_JSON || '[]');
+              if (!Array.isArray(data)) throw new Error('roadmap.json must be a JSON array');
+            } catch (e) {
+              core.setFailed(`Failed to parse roadmap.json: ${e.message}`);
+              return;
+            }
+            core.info(`Loaded ${data.length} items from roadmap.json`);
 
             const RESPECT_CLOSED = (process.env.RESPECT_CLOSED || 'true').toLowerCase() === 'true';
             const DO_NOT_REOPEN = new Set((process.env.DONT_REOPEN_IF_LABELED || 'completed,approved').split(',').map(s=>s.trim()).filter(Boolean));
@@ -66,6 +76,7 @@ jobs:
               catch { await github.rest.issues.createLabel({ owner, repo, name, color, description }); }
             }
 
+            // NOTE: uses milestone_number when updating (fix for 404)
             async function ensureMilestone(title, due_on) {
               const ms = await github.rest.issues.listMilestones({ owner, repo, state:'all', per_page: 100 });
               let hit = ms.data.find(m => m.title === title);
@@ -75,7 +86,7 @@ jobs:
                 })).data;
               } else if (due_on && hit.due_on !== due_on) {
                 hit = (await github.rest.issues.updateMilestone({
-                  owner, repo, milestone: hit.number, due_on
+                  owner, repo, milestone_number: hit.number, due_on
                 })).data;
               }
               return hit.number;
@@ -167,4 +178,3 @@ jobs:
                 core.info(`Created: #${created.data.number} ${it.title}`);
               }
             }
-
