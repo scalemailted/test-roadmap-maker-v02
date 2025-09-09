@@ -1,0 +1,135 @@
+name: Update README Submission Table
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "15 5 * * *"   # daily 05:15 UTC (~11:15p CT during CST, 12:15a during CDT)
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-readme-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-table:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate table from issues
+        id: gen
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'README.md';
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+
+            // Fetch all roadmap issues (open + closed) labeled "task"
+            const items = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner, repo, state: 'all', labels: 'task', per_page: 100 }
+            );
+
+            // Known status labels (priority order if multiple present)
+            const statusOrder = [
+              'changes-requested','blocked',
+              'peer-review-requested','reviewed','ready-for-approval',
+              'completed','approved','deployed'
+            ];
+            const statusSet = new Set(statusOrder);
+
+            function pickStatus(labels) {
+              const names = labels.map(l => (l.name || l).toString());
+              for (const s of statusOrder) if (names.includes(s)) return s;
+              return '';
+            }
+
+            function findKey(labels) {
+              const names = labels.map(l => (l.name || l).toString());
+              return names.find(n => /^lab-\d+|^project-\d+|^capstone-\d+/.test(n)) || '';
+            }
+
+            function typeOf(labels) {
+              const names = labels.map(l => (l.name || l).toString());
+              if (names.includes('lab')) return 'lab';
+              if (names.includes('project')) return 'project';
+              if (names.includes('capstone')) return 'capstone';
+              return '';
+            }
+
+            // Build rows
+            const baseLive = `https://${owner}.github.io/${repo}`;
+            const rows = [];
+
+            for (const it of items) {
+              const key = findKey(it.labels);
+              if (!key) continue; // skip non-roadmap issues
+              const typ = typeOf(it.labels);
+              const title = it.title;
+
+              // Compute Live/Source links
+              let live = '';
+              let source = '';
+              if (typ === 'lab') {
+                live   = `${baseLive}/labs/${key}/`;
+                source = `/labs/${key}/`;
+              } else if (typ === 'project') {
+                live   = `${baseLive}/projects/${key}/`;
+                source = `/projects/${key}/`;
+              } else if (typ === 'capstone') {
+                live   = '(n/a)';
+                source = `/capstone/${key}/`;
+              } else {
+                live = ''; source = '';
+              }
+
+              const status = pickStatus(it.labels);
+              rows.push({ title, key, live, source, status });
+            }
+
+            // Sort by type + numeric key if possible
+            function keyOrd(k){
+              const m = k.match(/^(lab|project|capstone)-(\d+)/i);
+              return m ? `${m[1]}-${String(parseInt(m[2],10)).padStart(3,'0')}` : k;
+            }
+            rows.sort((a,b) => keyOrd(a.key).localeCompare(keyOrd(b.key)));
+
+            // Markdown table
+            const header = '| Item | Key | Live | Source | Status | Notes |\n|---|---|---|---|---|---|';
+            const body = rows.map(r =>
+              `| ${r.title} | \`${r.key}\` | ${r.live ? `<${r.live}>` : ''} | \`${r.source}\` | ${r.status || ''} |  |`
+            ).join('\n');
+
+            const table = `${header}\n${body}`;
+
+            // Replace between markers in README
+            const start = '<!-- STATUS:START -->';
+            const end   = '<!-- STATUS:END -->';
+            let readme = fs.readFileSync(path, 'utf8');
+
+            if (!readme.includes(start) || !readme.includes(end)) {
+              core.setFailed('README.md missing STATUS markers.');
+              return;
+            }
+
+            const before = readme;
+            const re = new RegExp(`${start}[\\s\\S]*?${end}`);
+            readme = readme.replace(re, `${start}\n${table}\n${end}`);
+
+            if (readme !== before) {
+              fs.writeFileSync(path, readme);
+              core.setOutput('changed', 'true');
+            } else {
+              core.setOutput('changed', 'false');
+            }
+
+      - name: Commit README if changed
+        if: steps.gen.outputs.changed == 'true'
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: README.md
+          message: "docs: auto-update submission table from issues"
