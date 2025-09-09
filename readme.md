@@ -24,8 +24,8 @@
 ## ✅ Submission Status (automatically updated)
 
 <!-- STATUS:START -->
-| Item | Key | Live | Source | Status | Notes |
-|---|---|---|---|---|---|
+| Item | Key | Status |
+|---|---|---|
 <!-- STATUS:END -->
 
 
