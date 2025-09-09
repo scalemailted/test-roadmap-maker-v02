@@ -24,7 +24,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const path = 'README.md';
+            const path = 'readme.md';
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
 
